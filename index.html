@@ -186,7 +186,7 @@
       <div class="card"><div class="kpi-title" data-i18n="profitStatus">Profitability Status</div><div class="kpi-value" id="kpiStatus">-</div><div class="kpi-sub" data-i18n="basedEbitda">Based on EBITDA margin</div></div>
     </div>
     <div class="grid-2">
-      <div class="card"><div class="section-title"><h2 data-i18n="plTrend">P&L Trend</h2><span class="tag">Revenue / Expense / EBITDA</span></div><div class="chart-box"><canvas id="trendChart"></canvas></div></div>
+      <div class="card"><div class="section-title"><h2 data-i18n="plTrend">P&L Trend</h2><span class="tag">Revenue / Expense + EBITDA line</span></div><div class="chart-box"><canvas id="trendChart"></canvas></div></div>
       <div class="card"><div class="section-title"><h2 data-i18n="costStructure">Cost Structure</h2><span class="tag" data-i18n="expenseMix">Expense mix</span></div><div class="chart-box"><canvas id="costChart"></canvas></div></div>
     </div>
     <div class="grid-3">
@@ -493,7 +493,29 @@ function makeChart(id, config){
   charts[id] = new Chart(canvas, config);
 }
 function moneyAxisOpts(){
-  return {responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'bottom'}}, scales:{y:{ticks:{callback:v=>fmtMoney(v)}}}};
+  return {
+    responsive:true,
+    maintainAspectRatio:false,
+    plugins:{
+      legend:{position:'bottom'},
+      tooltip:{
+        callbacks:{
+          label:function(ctx){
+            const label = ctx.dataset && ctx.dataset.label ? ctx.dataset.label + ': ' : '';
+            return label + fmtMoney(ctx.raw || 0);
+          }
+        }
+      }
+    },
+    scales:{
+      y:{
+        beginAtZero:true,
+        ticks:{
+          callback:function(v){ return fmtMoney(v); }
+        }
+      }
+    }
+  };
 }
 function showTab(name, btn){
   document.querySelectorAll('.tab-page').forEach(x=>x.classList.remove('active'));
@@ -543,13 +565,50 @@ function renderOverview(rows,c){
   const byMonth = {};
   rows.forEach(r=>{ byMonth[r.month] ||= {revenue:0,expense:0,ebitda:0}; const ex=r.cogs+r.payroll+r.rent+r.marketing+r.utilities+r.otherOpex; byMonth[r.month].revenue += r.revenue; byMonth[r.month].expense += ex; byMonth[r.month].ebitda += r.revenue-ex; });
   const labels = Object.keys(byMonth).sort();
-  makeChart('trendChart', {type:'bar', data:{labels, datasets:[
-    {label:'Revenue', data:labels.map(x=>byMonth[x].revenue), borderWidth:1},
-    {label:'Expense', data:labels.map(x=>byMonth[x].expense), borderWidth:1},
-    {label:'EBITDA', data:labels.map(x=>byMonth[x].ebitda), type:'line', tension:.35, borderWidth:3}
-  ]}, options:moneyAxisOpts()});
+  makeChart('trendChart', {
+    type:'bar',
+    data:{
+      labels,
+      datasets:[
+        {label:'Revenue', data:labels.map(x=>byMonth[x].revenue), borderWidth:1, order:2},
+        {label:'Expense', data:labels.map(x=>byMonth[x].expense), borderWidth:1, order:2},
+        {label:'EBITDA', data:labels.map(x=>byMonth[x].ebitda), type:'line', yAxisID:'y1', tension:.35, borderWidth:3, pointRadius:5, order:1}
+      ]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      interaction:{mode:'index', intersect:false},
+      plugins:{
+        legend:{position:'bottom'},
+        tooltip:{
+          callbacks:{
+            label:function(ctx){
+              const label = ctx.dataset && ctx.dataset.label ? ctx.dataset.label + ': ' : '';
+              return label + fmtMoney(ctx.raw || 0);
+            }
+          }
+        }
+      },
+      scales:{
+        y:{
+          beginAtZero:true,
+          position:'left',
+          title:{display:true,text:'Revenue / Expense'},
+          ticks:{callback:function(v){return fmtMoney(v);}}
+        },
+        y1:{
+          beginAtZero:false,
+          position:'right',
+          title:{display:true,text:'EBITDA'},
+          grid:{drawOnChartArea:false},
+          ticks:{callback:function(v){return fmtMoney(v);}}
+        }
+      }
+    }
+  });
 
-  makeChart('costChart', {type:'doughnut', data:{labels:['COGS','Payroll','Rent','Marketing','Utilities','Other OPEX'], datasets:[{data:[c.cogs,c.payroll,c.rent,c.marketing,c.utilities,c.otherOpex]}]}, options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}});
+  makeChart('costChart', {type:'doughnut', data:{labels:['COGS','Payroll','Rent','Marketing','Utilities','Other OPEX'], datasets:[{data:[c.cogs,c.payroll,c.rent,c.marketing,c.utilities,c.otherOpex]}]}, options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'},tooltip:{callbacks:{label:function(ctx){const label=ctx.label?ctx.label+': ':'';return label+fmtMoney(ctx.raw||0);}}}}}});
 
   const clubAgg = getClubAgg(rows);
   makeChart('clubChart', {type:'bar', data:{labels:clubAgg.map(x=>x.club), datasets:[{label:'EBITDA', data:clubAgg.map(x=>x.ebitda), borderWidth:1}]}, options:{...moneyAxisOpts(), indexAxis:'y', plugins:{legend:{display:false}}}});
@@ -572,8 +631,8 @@ function renderRevenue(rows,c){
   ].map(x=>`<div class="deep-card"><b>${x[0]}</b><div class="big">${x[1]}</div><div class="small">${x[2]}</div></div>`).join('');
 
   makeChart('productChart', {type:'bar', data:{labels:prod.map(x=>x.k), datasets:[{label:'Revenue', data:prod.map(x=>x.v), borderWidth:1}]}, options:moneyAxisOpts()});
-  makeChart('funnelChart', {type:'bar', data:{labels:['Traffic','Appointment','Show','Close'], datasets:[{label:'Count', data:[c.traffic,c.appt,c.show,c.close], borderWidth:1}]}, options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}}}});
-  makeChart('transactionChart', {type:'doughnut', data:{labels:trans.map(x=>x.k), datasets:[{data:trans.map(x=>x.v)}]}, options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}});
+  makeChart('funnelChart', {type:'bar', data:{labels:['Traffic','Appointment','Show','Close'], datasets:[{label:'Count', data:[c.traffic,c.appt,c.show,c.close], borderWidth:1}]}, options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:function(ctx){return 'Count: '+(ctx.raw||0).toLocaleString();}}}},scales:{y:{beginAtZero:true,ticks:{callback:function(v){return v.toLocaleString();}}}}}});
+  makeChart('transactionChart', {type:'doughnut', data:{labels:trans.map(x=>x.k), datasets:[{data:trans.map(x=>x.v)}]}, options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'},tooltip:{callbacks:{label:function(ctx){const label=ctx.label?ctx.label+': ':'';return label+fmtMoney(ctx.raw||0);}}}}}});
 
   let html = '<tr><th>Source</th><th class="num">Traffic</th><th class="num">Revenue</th><th class="num">Close Rate</th><th class="num">Rev / Guest</th></tr>';
   source.forEach((s,i)=>{ const traffic=Math.round(c.traffic*[.18,.20,.22,.24,.10,.06][i]); html += `<tr><td><b>${s.k}</b></td><td class="num">${traffic}</td><td class="num">${fmtMoney(s.v)}</td><td class="num">${pct(.18+i*.012)}</td><td class="num">${fmtMoney(traffic?s.v/traffic:0)}</td></tr>`; });
@@ -610,7 +669,7 @@ function renderPeople(rows,c){
     ['PT Revenue / PT', fmtMoney(c.revenue*.28/Math.max(hc.PT,1)), 'PT productivity']
   ].map(x=>`<div class="deep-card"><b>${x[0]}</b><div class="big">${x[1]}</div><div class="small">${x[2]}</div></div>`).join('');
 
-  makeChart('headcountChart', {type:'doughnut', data:{labels:DEPTS, datasets:[{data:DEPTS.map(d=>hc[d])}]}, options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}});
+  makeChart('headcountChart', {type:'doughnut', data:{labels:DEPTS, datasets:[{data:DEPTS.map(d=>hc[d])}]}, options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'},tooltip:{callbacks:{label:function(ctx){const label=ctx.label?ctx.label+': ':'';return label+(ctx.raw||0)+' staff';}}}}}});
   makeChart('revEmployeeChart', {type:'bar', data:{labels:DEPTS, datasets:[{label:'Revenue / Employee proxy', data:DEPTS.map((d,i)=>Math.round((c.revenue*[.32,.28,.08,.12,.12,.08][i])/Math.max(hc[d],1))), borderWidth:1}]}, options:moneyAxisOpts()});
 
   document.getElementById('peopleTable').innerHTML = '<tr><th>Department</th><th class="num">Headcount</th><th class="num">Payroll Allocation</th><th class="num">Rev / Staff</th><th>Status</th></tr>' + DEPTS.map((d,i)=>{ const rev=c.revenue*[.32,.28,.08,.12,.12,.08][i], pay=c.payroll*[.28,.34,.1,.12,.1,.06][i]; return `<tr><td><b>${d}</b></td><td class="num">${hc[d]}</td><td class="num">${fmtMoney(pay)}</td><td class="num">${fmtMoney(rev/Math.max(hc[d],1))}</td><td>${rev/pay>3?'Productive':'Watch'}</td></tr>`; }).join('');
